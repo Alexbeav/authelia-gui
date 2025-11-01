@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Create User - Authelia User Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+    <h2>Create New User</h2>
+</div>
+
+<div class="form-container">
+    {% if success %}
+    <div class="alert alert-success">
+        <strong>Success!</strong> User "{{ created_username }}" has been created successfully.
+        <br><strong>Generated Password:</strong> <code class="password-display">{{ generated_password }}</code>
+        <p class="alert-note">Please save this password - it will not be shown again!</p>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-error">
+        <strong>Error:</strong> {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/create-user" class="user-form">
+        <div class="form-section">
+            <h3>User Information</h3>
+
+            <div class="form-group">
+                <label for="username">Username *</label>
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    required
+                    pattern="[a-z0-9_-]+"
+                    title="Lowercase letters, numbers, hyphens and underscores only"
+                    placeholder="e.g., jdoe"
+                    value="{{ form_data.username if form_data else '' }}"
+                >
+                <small>Lowercase letters, numbers, hyphens and underscores only</small>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email Address *</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    required
+                    placeholder="e.g., john.doe@example.com"
+                    value="{{ form_data.email if form_data else '' }}"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="displayname">Display Name *</label>
+                <input
+                    type="text"
+                    id="displayname"
+                    name="displayname"
+                    required
+                    placeholder="e.g., John Doe"
+                    value="{{ form_data.displayname if form_data else '' }}"
+                >
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Password</h3>
+
+            <div class="form-group">
+                <label>
+                    <input type="radio" name="password_mode" value="auto" checked>
+                    Auto-generate secure password (Recommended)
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="radio" name="password_mode" value="manual">
+                    Set password manually
+                </label>
+                <input
+                    type="password"
+                    id="manual_password"
+                    name="manual_password"
+                    placeholder="Enter password (min 12 characters)"
+                    minlength="12"
+                    disabled
+                >
+                <small>Minimum 12 characters recommended</small>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Groups</h3>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="groups" value="admins">
+                    Admins (Full access to all services)
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="groups" value="users" checked>
+                    Users (Standard access)
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label for="custom_groups">Custom Groups (comma-separated)</label>
+                <input
+                    type="text"
+                    id="custom_groups"
+                    name="custom_groups"
+                    placeholder="e.g., developers, editors"
+                >
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-large">Create User</button>
+            <a href="/" class="btn btn-secondary btn-large">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+// Enable/disable manual password field based on radio selection
+document.querySelectorAll('input[name="password_mode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const manualPasswordField = document.getElementById('manual_password');
+        if (this.value === 'manual') {
+            manualPasswordField.disabled = false;
+            manualPasswordField.required = true;
+        } else {
+            manualPasswordField.disabled = true;
+            manualPasswordField.required = false;
+            manualPasswordField.value = '';
+        }
+    });
+});
+</script>
+
+{% endblock %}

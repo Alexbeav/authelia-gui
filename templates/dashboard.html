@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Authelia User Management{% endblock %}
+
+{% block content %}
+<!-- Success/Error Messages -->
+{% if request.query_params.get('success') == 'user_deleted' %}
+<div class="alert alert-success">
+    <strong>Success!</strong> User has been deleted successfully.
+</div>
+{% endif %}
+
+{% if request.query_params.get('error') %}
+<div class="alert alert-error">
+    <strong>Error!</strong>
+    {% if request.query_params.get('error') == 'user_not_found' %}
+    User not found.
+    {% elif request.query_params.get('error') == 'delete_failed' %}
+    Failed to delete user. Check logs for details.
+    {% elif request.query_params.get('error') == 'last_admin' %}
+    Cannot delete the last admin user. Add another admin first.
+    {% else %}
+    An error occurred while deleting the user.
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="dashboard-header">
+    <h2>User Dashboard</h2>
+    <a href="/create-user" class="btn btn-primary create-user-btn">+ Create User</a>
+</div>
+
+<div class="stats">
+        <div class="stat-card">
+            <div class="stat-value">{{ total_users }}</div>
+            <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ users_with_2fa }}</div>
+            <div class="stat-label">Users with 2FA</div>
+        </div>
+    </div>
+</div>
+
+<div class="users-table-container">
+    <table class="users-table">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Display Name</th>
+                <th>Email</th>
+                <th>Groups</th>
+                <th>2FA Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td class="username">{{ user.username }}</td>
+                <td>{{ user.displayname }}</td>
+                <td>{{ user.email }}</td>
+                <td>
+                    <div class="groups">
+                        {% for group in user.groups %}
+                        <span class="group-badge">{{ group }}</span>
+                        {% endfor %}
+                        {% if not user.groups %}
+                        <span class="text-muted">No groups</span>
+                        {% endif %}
+                    </div>
+                </td>
+                <td>
+                    {% if user.has_totp %}
+                    <span class="status-badge status-enabled">Enabled</span>
+                    {% else %}
+                    <span class="status-badge status-disabled">Disabled</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <a href="/user/{{ user.username }}" class="btn btn-sm">Details</a>
+                        <form method="POST" action="/delete-user/{{ user.username }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete user \'{{ user.username }}\'? This action cannot be undone.');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not users %}
+            <tr>
+                <td colspan="6" class="text-center text-muted">No users found</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

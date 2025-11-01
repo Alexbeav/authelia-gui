@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}{{ user.username }} - User Details{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+    <h2>User Details</h2>
+</div>
+
+<div class="user-detail-container">
+    <div class="detail-section">
+        <h3>Basic Information</h3>
+        <div class="detail-grid">
+            <div class="detail-item">
+                <label>Username:</label>
+                <span class="value">{{ user.username }}</span>
+            </div>
+            <div class="detail-item">
+                <label>Display Name:</label>
+                <span class="value">{{ user.displayname }}</span>
+            </div>
+            <div class="detail-item">
+                <label>Email:</label>
+                <span class="value">{{ user.email }}</span>
+            </div>
+            <div class="detail-item">
+                <label>Groups:</label>
+                <div class="groups">
+                    {% for group in user.groups %}
+                    <span class="group-badge">{{ group }}</span>
+                    {% endfor %}
+                    {% if not user.groups %}
+                    <span class="text-muted">No groups</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-section">
+        <h3>Two-Factor Authentication (2FA)</h3>
+        <div class="detail-grid">
+            <div class="detail-item">
+                <label>Status:</label>
+                {% if user.has_totp %}
+                <span class="status-badge status-enabled">Enabled</span>
+                {% else %}
+                <span class="status-badge status-disabled">Disabled</span>
+                {% endif %}
+            </div>
+            {% if user.has_totp %}
+            <div class="detail-item">
+                <label>Configured On:</label>
+                <span class="value">{{ user.totp_created_at or 'Unknown' }}</span>
+            </div>
+            <div class="detail-item">
+                <label>Last Used:</label>
+                <span class="value">{{ user.totp_last_used or 'Never' }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if auth_logs %}
+    <div class="detail-section">
+        <h3>Recent Authentication Activity</h3>
+        <div class="logs-container">
+            <table class="logs-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>IP Address</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in auth_logs %}
+                    <tr>
+                        <td>{{ log.time }}</td>
+                        <td>
+                            <span class="auth-type-badge">{{ log.auth_type }}</span>
+                        </td>
+                        <td>
+                            {% if log.successful %}
+                            <span class="status-badge status-success">Success</span>
+                            {% else %}
+                            <span class="status-badge status-failure">Failed</span>
+                            {% endif %}
+                        </td>
+                        <td class="monospace">{{ log.remote_ip or 'Unknown' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

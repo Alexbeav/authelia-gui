@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Error - Authelia User Management{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <div class="error-icon">⚠️</div>
+    <h2>Error</h2>
+    <p class="error-message">{{ error_message }}</p>
+    <a href="/" class="btn btn-primary">Return to Dashboard</a>
+</div>
+{% endblock %}
