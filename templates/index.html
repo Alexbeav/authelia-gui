@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block title %}User Management Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Toast notification area -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <div class="dashboard-header">
+        <h1>User Management</h1>
+        <div class="header-actions">
+            <button id="create-user-btn" class="btn btn-primary">+ Create User</button>
+        </div>
+    </div>
+
+    <!-- Stats cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">{{ total_users }}</div>
+            <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ users|selectattr('groups', 'contains', admin_group)|list|length }}</div>
+            <div class="stat-label">Administrators</div>
+        </div>
+    </div>
+
+    <!-- Watch Mode Status -->
+    <div class="watch-mode-status">
+        {% if force_restart %}
+        <span class="watch-badge watch-badge-warning" title="Restart is forced via FORCE_RESTART setting">
+            ⚙️ Mode: Restart (Forced)
+        </span>
+        {% elif watch_mode_enabled %}
+        <span class="watch-badge watch-badge-success" title="Authelia detects file changes automatically">
+            ✓ Mode: Auto-Reload (Watch Enabled)
+        </span>
+        {% else %}
+        <span class="watch-badge watch-badge-info" title="Changes require Authelia restart">
+            ⟳ Mode: Restart Required
+        </span>
+        {% endif %}
+        <span class="watch-hint">
+            File changes will be
+            {% if force_restart %}
+            applied via restart (forced by config).
+            {% elif watch_mode_enabled %}
+            detected automatically within seconds.
+            {% else %}
+            applied via Authelia restart.
+            {% endif %}
+        </span>
+    </div>
+
+    <!-- Search bar -->
+    <div class="search-bar">
+        <input
+            type="text"
+            id="search-input"
+            placeholder="Search users by username or email..."
+            value="{{ search_query }}"
+        >
+    </div>
+
+    <!-- Users table -->
+    <div class="users-table-container">
+        <table class="users-table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                    <th>Groups</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="users-tbody">
+                {% for user in users %}
+                <tr data-username="{{ user.username }}">
+                    <td class="username">{{ user.username }}</td>
+                    <td>{{ user.displayname }}</td>
+                    <td>{{ user.email }}</td>
+                    <td>
+                        <div class="groups">
+                            {% for group in user.groups %}
+                            <span class="group-badge">{{ group }}</span>
+                            {% endfor %}
+                            {% if not user.groups %}
+                            <span class="text-muted">No groups</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <button
+                            class="btn btn-sm btn-danger delete-user-btn"
+                            data-username="{{ user.username }}"
+                        >
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not users %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted">
+                        {% if search_query %}
+                        No users found matching "{{ search_query }}"
+                        {% else %}
+                        No users found
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div id="create-user-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Create New User</h2>
+            <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <form id="create-user-form">
+            <div class="form-group">
+                <label for="username">Username *</label>
+                <input
+                    type="text"
+                    id="username"
+                    name="username"
+                    required
+                    pattern="[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]"
+                    title="Lowercase alphanumeric, 2-32 chars, can contain . _ - but not at start/end"
+                >
+                <small>Lowercase alphanumeric, 2-32 characters</small>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email *</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+
+            <div class="form-group">
+                <label for="displayname">Display Name *</label>
+                <input type="text" id="displayname" name="displayname" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    minlength="12"
+                    placeholder="Leave empty to auto-generate"
+                >
+                <small>Min 12 characters (auto-generated if empty)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="groups">Groups</label>
+                <input
+                    type="text"
+                    id="groups"
+                    name="groups"
+                    placeholder="comma, separated, groups"
+                >
+                <small>Comma-separated list (e.g., users, developers)</small>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="delete-modal" class="modal">
+    <div class="modal-content modal-sm">
+        <div class="modal-header">
+            <h2>Confirm Deletion</h2>
+            <button class="modal-close" id="delete-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete user <strong id="delete-username"></strong>?</p>
+            <p class="warning">This action cannot be undone. Authelia will restart briefly.</p>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="delete-cancel-btn">Cancel</button>
+            <button type="button" class="btn btn-danger" id="delete-confirm-btn">Delete User</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// CSRF token from cookie
+const csrfToken = '{{ csrf_token }}';
+
+// Toast notification system
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
+
+// Modal handling
+const createModal = document.getElementById('create-user-modal');
+const deleteModal = document.getElementById('delete-modal');
+
+document.getElementById('create-user-btn').addEventListener('click', () => {
+    createModal.classList.add('show');
+});
+
+document.getElementById('modal-close').addEventListener('click', () => {
+    createModal.classList.remove('show');
+});
+
+document.getElementById('cancel-btn').addEventListener('click', () => {
+    createModal.classList.remove('show');
+});
+
+document.getElementById('delete-modal-close').addEventListener('click', () => {
+    deleteModal.classList.remove('show');
+});
+
+document.getElementById('delete-cancel-btn').addEventListener('click', () => {
+    deleteModal.classList.remove('show');
+});
+
+// Search functionality
+document.getElementById('search-input').addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase();
+    const rows = document.querySelectorAll('#users-tbody tr[data-username]');
+
+    rows.forEach(row => {
+        const username = row.dataset.username.toLowerCase();
+        const email = row.querySelector('td:nth-child(3)').textContent.toLowerCase();
+
+        if (username.includes(query) || email.includes(query)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+});
+
+// Create user form submission
+document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(e.target);
+
+    try {
+        showToast('Creating user and restarting Authelia...', 'info');
+
+        const response = await fetch('/users', {
+            method: 'POST',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            },
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            let message = data.message;
+
+            // Show generated password if any
+            if (data.generated_password) {
+                message += `\n\nGenerated password (save this now!):\n${data.generated_password}`;
+                alert(`User created!\n\nGenerated password:\n${data.generated_password}\n\nPlease save this password - it will not be shown again!`);
+            }
+
+            showToast(message, 'success');
+
+            if (data.restart_status && !data.restart_status.success) {
+                showToast(`Warning: ${data.restart_status.message}`, 'warning');
+            }
+
+            // Close modal and refresh page
+            createModal.classList.remove('show');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showToast(data.error || 'Failed to create user', 'error');
+        }
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+});
+
+// Delete user handling
+let userToDelete = null;
+
+document.querySelectorAll('.delete-user-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        userToDelete = e.target.dataset.username;
+        document.getElementById('delete-username').textContent = userToDelete;
+        deleteModal.classList.add('show');
+    });
+});
+
+document.getElementById('delete-confirm-btn').addEventListener('click', async () => {
+    if (!userToDelete) return;
+
+    try {
+        showToast('Deleting user and restarting Authelia...', 'info');
+        deleteModal.classList.remove('show');
+
+        const response = await fetch(`/users/${userToDelete}`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast(data.message, 'success');
+
+            if (data.restart_status && !data.restart_status.success) {
+                showToast(`Warning: ${data.restart_status.message}`, 'warning');
+            }
+
+            // Remove row from table
+            const row = document.querySelector(`tr[data-username="${userToDelete}"]`);
+            if (row) row.remove();
+
+            userToDelete = null;
+        } else {
+            if (response.status === 409) {
+                showToast(data.error || 'Cannot delete user', 'error');
+            } else {
+                showToast(data.error || 'Failed to delete user', 'error');
+            }
+        }
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+});
+
+// Close modals on outside click
+window.addEventListener('click', (e) => {
+    if (e.target === createModal) {
+        createModal.classList.remove('show');
+    }
+    if (e.target === deleteModal) {
+        deleteModal.classList.remove('show');
+    }
+});
+</script>
+{% endblock %}

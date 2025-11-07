@@ -386,15 +386,15 @@ async def delete_user(request: Request, username: str):
         if success:
             logger.info(f"User '{username}' deleted successfully")
 
-            # Restart Authelia to immediately remove the user
+            # Restart Authelia asynchronously (don't block the response)
             try:
                 import subprocess
-                subprocess.run(
+                subprocess.Popen(
                     ['docker', 'restart', 'authelia'],
-                    capture_output=True,
-                    timeout=10
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
                 )
-                logger.info("Authelia restarted to remove user")
+                logger.info("Authelia restart initiated")
             except Exception as e:
                 logger.warning(f"Could not restart Authelia: {e}")
 

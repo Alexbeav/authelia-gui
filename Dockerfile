@@ -1,38 +1,53 @@
-FROM python:3.11-slim
+# Hardened Dockerfile for Authelia GUI v0.1
+FROM python:3.11-slim-bookworm
 
+# Prevent Python from writing pyc files and buffering stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Set working directory
 WORKDIR /app
 
-# Install docker CLI for calling Authelia's hash generator
+# Install system dependencies including curl for healthcheck
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg && \
-    install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
-    chmod a+r /etc/apt/keyrings/docker.asc && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
-    apt-get clean && \
+        curl \
+        ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Create non-root user
+RUN groupadd -g 1000 appuser && \
+    useradd -u 1000 -g appuser -s /bin/bash -m appuser
 
-# Install dependencies
+# Copy requirements first for better caching
+COPY --chown=appuser:appuser requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY app/ ./app/
-COPY templates/ ./templates/
-COPY static/ ./static/
+COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser templates/ ./templates/
+COPY --chown=appuser:appuser static/ ./static/
 
-# Set working directory for the app
+# Create data directories with proper permissions
+RUN mkdir -p /data/backups && \
+    chown -R appuser:appuser /data
+
+# Switch to non-root user
+USER appuser
+
+# Set working directory to app
 WORKDIR /app/app
 
-# Expose port
+# Expose port (configurable via PORT env var, default 8080)
 EXPOSE 8080
 
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+
+# Run application
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
