@@ -1,9 +1,13 @@
-# Authelia User Management GUI v0.2
+# Authelia User Management GUI v0.1
 
 Production-grade web interface for managing [Authelia](https://www.authelia.com/) file provider users with comprehensive security features and intelligent watch mode support.
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
+**Production-ready for homelab and SMB deployments** ✨
+
+![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Python](https://img.shields.io/badge/python-3.11-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104-green.svg)
 
 ## Features
 
@@ -29,32 +33,72 @@ Built with production-grade security and reliability:
 - **Adaptive Behavior**: Automatically chooses between restart or watch-based reload
 - **Deployment**: Hardened Docker container running as non-root user
 
-## Security Features
+## Security Model
 
-### RBAC (Role-Based Access Control)
-- Enforces admin group membership via `X-Forwarded-Groups` header
-- All state-changing operations require admin privileges
-- Configurable admin group name (default: `authelia-admins`)
+**⚠️ IMPORTANT: This GUI must be deployed behind Authelia with a reverse proxy. Never expose it publicly without authentication.**
 
-### CSRF Protection
-- Double-submit cookie pattern using `itsdangerous`
-- All POST requests must include valid `X-CSRF-Token` header
+### Authentication & Authorization
+This application deliberately has **no built-in authentication**. It relies entirely on:
+- **Authelia** for user authentication
+- **Reverse proxy** (Traefik, Nginx, etc.) for forwarding authenticated user headers
+- **RBAC** via `X-Forwarded-Groups` header to enforce admin-only access
+
+### Security Architecture
+
+#### 1. RBAC (Role-Based Access Control)
+- All state-changing operations (POST, PUT, PATCH, DELETE) require `X-Forwarded-Groups` header
+- Header must contain the configured admin group (default: `authelia-admins`)
+- Groups are parsed as comma-separated values with whitespace trimmed
+- Missing, empty, or invalid groups result in HTTP 403 Forbidden
+- GET requests bypass RBAC (protected by Authelia at proxy level)
+
+#### 2. CSRF Protection
+- Implements double-submit cookie pattern with signed tokens
+- Token stored in `csrf` cookie (HttpOnly=false for JavaScript access)
+- Client submits token via:
+  - `X-CSRF-Token` header (for fetch/AJAX), OR
+  - `csrf_token` form field (for HTML forms)
+- Tokens signed with `itsdangerous.URLSafeTimedSerializer`
 - Tokens expire after 1 hour
+- All state-changing methods (POST, PUT, PATCH, DELETE) require valid CSRF token
+- `/health` and `/watch-mode-status` endpoints exempt from CSRF
 
-### Session Management
-- 30-minute idle timeout (configurable)
-- Signed session cookies with timestamp
+#### 3. Session Management
+- Session cookies track user activity with configurable TTL (default: 30 minutes)
+- Signed with `itsdangerous` using `CSRF_SECRET`
+- HttpOnly, Secure, and SameSite=Lax flags set
 - Automatic session refresh on activity
+- Session expiration returns HTTP 401 with instruction to refresh
 
-### Security Headers
+#### 4. Security Headers
+All responses include comprehensive security headers:
 ```
-Content-Security-Policy: default-src 'self'; frame-ancestors 'none';
+Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline';
+                         script-src 'self' 'unsafe-inline'; frame-ancestors 'none';
 X-Frame-Options: DENY
 Referrer-Policy: no-referrer
 Strict-Transport-Security: max-age=31536000
 X-Content-Type-Options: nosniff
 X-XSS-Protection: 1; mode=block
 ```
+
+#### 5. Audit Logging
+- All user management operations logged to SQLite database
+- Logs include: timestamp, actor, action, target, IP address, metadata
+- **No plaintext passwords** stored (only first 12 chars of hash for tracking)
+- Audit log path configurable via `AUDIT_DB_PATH`
+- Queryable via `/audit` endpoint (admin-only)
+
+#### 6. Last Admin Protection
+- Prevents deletion of the last user in the admin group
+- Ensures system always has at least one administrator
+- Returns HTTP 409 Conflict if attempted
+
+#### 7. File Locking
+- Exclusive file locks using `portalocker` during write operations
+- Prevents concurrent writes from corrupting users.yml
+- 30-second timeout for lock acquisition
+- Automatic lock release on operation completion
 
 ## Watch Mode Support
 
@@ -114,7 +158,7 @@ version: '3.8'
 
 services:
   authelia-gui:
-    image: authelia-gui:0.2.0
+    image: authelia-gui:0.1.0
     build: .
     container_name: authelia-gui
     user: "1000:1000"
@@ -273,7 +317,7 @@ python -m uvicorn app:app --reload --port 8080
 ### Building Docker Image
 
 ```bash
-docker build -t authelia-gui:0.2.0 .
+docker build -t authelia-gui:0.1.0 .
 ```
 
 ## Troubleshooting
@@ -366,6 +410,9 @@ For issues, questions, or contributions, please visit the GitHub repository.
 
 ---
 
-**Version:** v0.2.0
-**Status:** Production-ready
+**Version:** v0.1.0
+**Status:** Production-ready for homelab/SMB
 **Last Updated:** 2025-11-07
+
+**GitHub:** [Alexbeav/authelia-gui](https://github.com/Alexbeav/authelia-gui)
+**Topics:** `authelia`, `fastapi`, `selfhosted`, `auth`, `admin-panel`, `user-management`

@@ -55,29 +55,31 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     status_code=401
                 )
 
-        # RBAC check for modifying endpoints
+        # RBAC check for modifying endpoints (exempt /health and /watch-mode-status)
         if request.method in ['POST', 'DELETE', 'PUT', 'PATCH']:
-            if not self._check_rbac(request):
-                logger.warning(
-                    f"RBAC denied for {actor} from {ip_address} on {request.url.path}",
-                    extra={'actor': actor, 'ip': ip_address, 'path': request.url.path}
-                )
-                return JSONResponse(
-                    {'error': 'Forbidden', 'detail': f'Admin group "{self.settings.admin_group}" required'},
-                    status_code=403
-                )
+            if request.url.path not in ['/health', '/watch-mode-status']:
+                if not self._check_rbac(request):
+                    logger.warning(
+                        f"RBAC denied for {actor} from {ip_address} on {request.url.path}",
+                        extra={'actor': actor, 'ip': ip_address, 'path': request.url.path}
+                    )
+                    return JSONResponse(
+                        {'error': 'Forbidden', 'detail': f'Admin group "{self.settings.admin_group}" required'},
+                        status_code=403
+                    )
 
-        # CSRF check for state-changing requests (except initial GET)
-        if request.method == 'POST' and request.url.path != '/health':
-            if not self._check_csrf(request):
-                logger.warning(
-                    f"CSRF check failed for {actor} from {ip_address}",
-                    extra={'actor': actor, 'ip': ip_address}
-                )
-                return JSONResponse(
-                    {'error': 'CSRF validation failed', 'detail': 'Invalid or missing CSRF token'},
-                    status_code=400
-                )
+        # CSRF check for all state-changing requests: POST, PUT, PATCH, DELETE
+        if request.method in ['POST', 'DELETE', 'PUT', 'PATCH']:
+            if request.url.path not in ['/health', '/watch-mode-status']:
+                if not await self._check_csrf(request):
+                    logger.warning(
+                        f"CSRF check failed for {actor} from {ip_address}",
+                        extra={'actor': actor, 'ip': ip_address}
+                    )
+                    return JSONResponse(
+                        {'error': 'CSRF validation failed', 'detail': 'Invalid or missing CSRF token'},
+                        status_code=400
+                    )
 
         # Process request
         response = await call_next(request)
@@ -89,9 +91,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if request.url.path != '/health':
             self._update_session(response)
 
-        # Add/refresh CSRF token
-        if request.url.path != '/health':
-            self._set_csrf_cookie(response)
+        # Add/refresh CSRF token (on GET requests for HTML pages)
+        if request.url.path != '/health' and request.method == 'GET':
+            self._set_csrf_cookie(response, request)
 
         return response
 
@@ -115,9 +117,13 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
         return self.settings.admin_group in groups
 
-    def _check_csrf(self, request: Request) -> bool:
+    async def _check_csrf(self, request: Request) -> bool:
         """
-        Validate CSRF token from header matches cookie.
+        Validate CSRF token from header or form matches cookie.
+
+        Implements double-submit cookie pattern:
+        - Token stored in 'csrf' cookie
+        - Client sends it back via X-CSRF-Token header OR csrf_token form field
 
         Args:
             request: Starlette request object
@@ -125,21 +131,35 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         Returns:
             True if valid, False otherwise
         """
-        # Get token from header
-        header_token = request.headers.get('X-CSRF-Token', '')
-
         # Get token from cookie
-        cookie_token = request.cookies.get('csrf_token', '')
+        cookie_token = request.cookies.get('csrf', '')
+        if not cookie_token:
+            return False
 
-        if not header_token or not cookie_token:
+        # Get submitted token from either header or form
+        submitted_token = request.headers.get('X-CSRF-Token', '')
+
+        # If not in header, try form data
+        if not submitted_token:
+            try:
+                # Check if content-type is form data
+                content_type = request.headers.get('content-type', '')
+                if 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
+                    form = await request.form()
+                    submitted_token = form.get('csrf_token', '')
+            except:
+                pass
+
+        if not submitted_token:
             return False
 
         try:
-            # Verify both tokens are valid and match
-            header_data = self.csrf_serializer.loads(header_token, max_age=3600)
+            # Verify both tokens are valid (signed correctly)
             cookie_data = self.csrf_serializer.loads(cookie_token, max_age=3600)
+            submitted_data = self.csrf_serializer.loads(submitted_token, max_age=3600)
 
-            return header_data == cookie_data
+            # They must match
+            return cookie_data == submitted_data
         except BadSignature:
             return False
 
@@ -168,28 +188,32 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         except BadSignature:
             return False
 
-    def _set_csrf_cookie(self, response: Response) -> None:
+    def _set_csrf_cookie(self, response: Response, request: Request = None) -> None:
         """
         Set/refresh CSRF token cookie.
 
+        Token is stored in 'csrf' cookie and also made available
+        to the request state for template rendering.
+
         Args:
             response: Starlette response object
+            request: Optional request object to store token in state
         """
         token_value = secrets.token_hex(32)
         signed_token = self.csrf_serializer.dumps(token_value)
 
         response.set_cookie(
-            key='csrf_token',
+            key='csrf',
             value=signed_token,
-            httponly=True,
+            httponly=False,  # JS needs to read this for fetch requests
             secure=True,
-            samesite='strict',
+            samesite='lax',  # Lax for form POSTs to work
             max_age=3600
         )
 
-        # Also expose in a meta tag for JS to read
-        if hasattr(response, 'headers'):
-            response.headers['X-CSRF-Token'] = signed_token
+        # Store token in request state for template access
+        if request:
+            request.state.csrf_token = signed_token
 
     def _update_session(self, response: Response) -> None:
         """

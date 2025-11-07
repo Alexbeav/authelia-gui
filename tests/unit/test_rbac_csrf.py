@@ -100,6 +100,151 @@ class TestRBACEnforcement:
         assert response.status_code == 403
         assert "Admin group" in response.json()["detail"]
 
+    def test_rbac_blocks_empty_header(self, settings):
+        """Requests with empty X-Forwarded-Groups should be blocked."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users", endpoint, methods=["POST"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        response = client.post(
+            "/users",
+            headers={"X-Forwarded-Groups": ""}
+        )
+
+        assert response.status_code == 403
+        assert "Admin group" in response.json()["detail"]
+
+    def test_rbac_blocks_wrong_groups(self, settings):
+        """Requests with only wrong groups should be blocked."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users", endpoint, methods=["POST"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        response = client.post(
+            "/users",
+            headers={"X-Forwarded-Groups": "users,developers,viewers"}
+        )
+
+        assert response.status_code == 403
+        assert "Admin group" in response.json()["detail"]
+
+    def test_rbac_allows_mixed_groups_with_admin(self, settings):
+        """Requests with admin group among others should pass RBAC."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users", endpoint, methods=["POST"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # Include admin group among others
+        response = client.post(
+            "/users",
+            headers={
+                "X-Forwarded-Groups": "users,authelia-admins,developers"
+            }
+        )
+
+        # Should not get 403 due to RBAC (may get 400 due to CSRF, but not 403)
+        if response.status_code == 403:
+            assert "Admin group" not in response.json().get("detail", "")
+
+    def test_rbac_applies_to_delete_method(self, settings):
+        """DELETE requests should also require RBAC."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users/{username}", endpoint, methods=["DELETE"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # Without admin group
+        response = client.delete(
+            "/users/testuser",
+            headers={"X-Forwarded-Groups": "users"}
+        )
+
+        assert response.status_code == 403
+        assert "Admin group" in response.json()["detail"]
+
+    def test_rbac_applies_to_put_method(self, settings):
+        """PUT requests should also require RBAC."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users/{username}", endpoint, methods=["PUT"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # Without admin group
+        response = client.put(
+            "/users/testuser",
+            headers={"X-Forwarded-Groups": "users"}
+        )
+
+        assert response.status_code == 403
+        assert "Admin group" in response.json()["detail"]
+
+    def test_rbac_applies_to_patch_method(self, settings):
+        """PATCH requests should also require RBAC."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users/{username}", endpoint, methods=["PATCH"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # Without admin group
+        response = client.patch(
+            "/users/testuser",
+            headers={"X-Forwarded-Groups": "users"}
+        )
+
+        assert response.status_code == 403
+        assert "Admin group" in response.json()["detail"]
+
     def test_rbac_allows_get_requests(self, settings):
         """GET requests should not require RBAC check."""
         from starlette.applications import Starlette
@@ -170,6 +315,135 @@ class TestCSRFProtection:
 
         # Should succeed without CSRF
         assert response.status_code == 200
+
+    def test_csrf_required_for_delete(self, settings):
+        """DELETE requests should require valid CSRF token."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users/{username}", endpoint, methods=["DELETE"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # DELETE without CSRF token should fail
+        response = client.delete(
+            "/users/testuser",
+            headers={"X-Forwarded-Groups": "authelia-admins"}
+        )
+
+        assert response.status_code == 400
+        assert "CSRF" in response.json()["error"]
+
+    def test_csrf_required_for_put(self, settings):
+        """PUT requests should require valid CSRF token."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users/{username}", endpoint, methods=["PUT"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # PUT without CSRF token should fail
+        response = client.put(
+            "/users/testuser",
+            headers={"X-Forwarded-Groups": "authelia-admins"}
+        )
+
+        assert response.status_code == 400
+        assert "CSRF" in response.json()["error"]
+
+    def test_csrf_required_for_patch(self, settings):
+        """PATCH requests should require valid CSRF token."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users/{username}", endpoint, methods=["PATCH"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # PATCH without CSRF token should fail
+        response = client.patch(
+            "/users/testuser",
+            headers={"X-Forwarded-Groups": "authelia-admins"}
+        )
+
+        assert response.status_code == 400
+        assert "CSRF" in response.json()["error"]
+
+    def test_csrf_missing_cookie(self, settings):
+        """Requests with header but no cookie should fail."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users", endpoint, methods=["POST"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # POST with header but no cookie
+        response = client.post(
+            "/users",
+            headers={
+                "X-Forwarded-Groups": "authelia-admins",
+                "X-CSRF-Token": "some-token"
+            }
+        )
+
+        assert response.status_code == 400
+        assert "CSRF" in response.json()["error"]
+
+    def test_csrf_missing_header_and_form_field(self, settings):
+        """Requests with cookie but no submitted token should fail."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+        from itsdangerous import URLSafeTimedSerializer
+
+        async def endpoint(request: Request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/users", endpoint, methods=["POST"])
+        ])
+        app.add_middleware(SecurityMiddleware, settings=settings)
+
+        client = TestClient(app)
+
+        # Generate a valid CSRF token
+        serializer = URLSafeTimedSerializer(settings.csrf_secret, salt='csrf')
+        token = serializer.dumps("test-value")
+
+        # POST with cookie but no header or form field
+        response = client.post(
+            "/users",
+            headers={"X-Forwarded-Groups": "authelia-admins"},
+            cookies={"csrf": token}
+        )
+
+        assert response.status_code == 400
+        assert "CSRF" in response.json()["error"]
 
 
 class TestActorExtraction:

@@ -6,6 +6,7 @@ Provides:
 - Automatic backups with rotation
 - Safe user addition/deletion
 - Last admin protection
+- File locking for concurrency safety
 """
 import os
 import shutil
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 import tempfile
+import portalocker
 
 from config import Settings
 from models import UserConfig, UsersFile
@@ -35,6 +37,7 @@ class UsersFileHandler:
         self.settings = settings
         self.users_file_path = Path(settings.authelia_users_file)
         self.backup_dir = Path(settings.backup_dir)
+        self.lock_file_path = Path(settings.authelia_users_file).with_suffix('.lock')
 
         # Ensure backup directory exists
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -82,11 +85,13 @@ class UsersFileHandler:
         Save users to file atomically with optional backup.
 
         Process:
+        0. Acquire exclusive file lock
         1. Create backup of current file (if exists and requested)
         2. Write to temporary file
         3. fsync to ensure data is written
         4. Atomic rename to target path
         5. Prune old backups
+        6. Release lock
 
         Args:
             users_file: UsersFile object to save
@@ -95,56 +100,58 @@ class UsersFileHandler:
         Raises:
             IOError: If write fails
         """
-        try:
-            # Step 1: Create backup
-            if create_backup and self.users_file_path.exists():
-                self._create_backup()
-
-            # Step 2: Write to temporary file in same directory (ensures same filesystem)
-            temp_fd, temp_path = tempfile.mkstemp(
-                dir=self.users_file_path.parent,
-                prefix='.users_tmp_',
-                suffix='.yml'
-            )
-
+        # Acquire exclusive lock for the duration of the write operation
+        with portalocker.Lock(self.lock_file_path, 'w', timeout=30) as lock_fh:
             try:
-                # Convert to YAML-friendly dict
-                data = {'users': {}}
-                for username, user_config in users_file.users.items():
-                    data['users'][username] = {
-                        'password': user_config.password,
-                        'displayname': user_config.displayname,
-                        'email': user_config.email,
-                        'groups': user_config.groups
-                    }
+                # Step 1: Create backup
+                if create_backup and self.users_file_path.exists():
+                    self._create_backup()
 
-                # Write YAML
-                with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
-                    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-                    f.flush()
-                    # Step 3: fsync to ensure data is on disk
-                    os.fsync(f.fileno())
+                # Step 2: Write to temporary file in same directory (ensures same filesystem)
+                temp_fd, temp_path = tempfile.mkstemp(
+                    dir=self.users_file_path.parent,
+                    prefix='.users_tmp_',
+                    suffix='.yml'
+                )
 
-                # Step 4: Atomic rename
-                os.replace(temp_path, self.users_file_path)
+                try:
+                    # Convert to YAML-friendly dict
+                    data = {'users': {}}
+                    for username, user_config in users_file.users.items():
+                        data['users'][username] = {
+                            'password': user_config.password,
+                            'displayname': user_config.displayname,
+                            'email': user_config.email,
+                            'groups': user_config.groups
+                        }
 
-                logger.info(f"Successfully saved {len(users_file.users)} users to {self.users_file_path}")
+                    # Write YAML
+                    with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+                        f.flush()
+                        # Step 3: fsync to ensure data is on disk
+                        os.fsync(f.fileno())
+
+                    # Step 4: Atomic rename
+                    os.replace(temp_path, self.users_file_path)
+
+                    logger.info(f"Successfully saved {len(users_file.users)} users to {self.users_file_path}")
+
+                except Exception as e:
+                    # Clean up temp file on error
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+                    raise
+
+                # Step 5: Prune old backups
+                if create_backup:
+                    self._prune_backups()
 
             except Exception as e:
-                # Clean up temp file on error
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-                raise
-
-            # Step 5: Prune old backups
-            if create_backup:
-                self._prune_backups()
-
-        except Exception as e:
-            logger.error(f"Error saving users file: {e}")
-            raise IOError(f"Failed to save users file: {e}")
+                logger.error(f"Error saving users file: {e}")
+                raise IOError(f"Failed to save users file: {e}")
 
     def add_user(
         self,
@@ -172,6 +179,12 @@ class UsersFileHandler:
 
         if username in users_file.users:
             raise ValueError(f"User '{username}' already exists")
+
+        # Check for duplicate emails
+        email_lower = email.lower()
+        for existing_username, existing_user in users_file.users.items():
+            if existing_user.email.lower() == email_lower:
+                raise ValueError(f"Email '{email}' is already used by user '{existing_username}'")
 
         # Create new user config (Pydantic will validate)
         new_user = UserConfig(

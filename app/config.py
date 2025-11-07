@@ -44,7 +44,7 @@ class Settings(BaseModel):
         env='AUTHELIA_CONFIG_FILE'
     )
     restart_cmd: str = Field(
-        default='docker restart authelia',
+        default='echo "RESTART_CMD not configured - set this to restart Authelia (e.g., docker restart authelia or systemctl restart authelia)"',
         env='RESTART_CMD'
     )
     health_url: str = Field(
@@ -122,7 +122,7 @@ def get_settings() -> Settings:
         audit_db_path=os.getenv('AUDIT_DB_PATH', '/data/audits.db'),
         authelia_container=os.getenv('AUTHELIA_CONTAINER', 'authelia'),
         authelia_config_file=os.getenv('AUTHELIA_CONFIG_FILE', '/config/configuration.yml'),
-        restart_cmd=os.getenv('RESTART_CMD', 'docker restart authelia'),
+        restart_cmd=os.getenv('RESTART_CMD', 'echo "RESTART_CMD not configured - set this to restart Authelia (e.g., docker restart authelia or systemctl restart authelia)"'),
         health_url=os.getenv('HEALTH_URL', 'http://authelia:9091/api/health'),
         health_timeout_seconds=int(os.getenv('HEALTH_TIMEOUT_SECONDS', '30')),
         force_restart=os.getenv('FORCE_RESTART', 'false').lower() == 'true',

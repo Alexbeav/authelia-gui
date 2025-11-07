@@ -42,12 +42,15 @@ USER appuser
 # Set working directory to app
 WORKDIR /app/app
 
-# Expose port (configurable via PORT env var, default 8080)
-EXPOSE 8080
+# Set default PORT
+ENV PORT=8080
+
+# Expose port (configurable via PORT env var)
+EXPOSE ${PORT}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+    CMD curl -fsS http://localhost:${PORT}/health || exit 1
 
-# Run application
-CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run application (use shell form to allow env var substitution)
+CMD sh -c "python -m uvicorn app:app --host 0.0.0.0 --port ${PORT}"

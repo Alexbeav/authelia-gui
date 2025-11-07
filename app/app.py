@@ -137,8 +137,8 @@ async def dashboard(
                 if search_lower in u.username.lower() or search_lower in u.email.lower()
             ]
 
-        # Generate CSRF token for forms
-        csrf_token = generate_csrf_token(settings)
+        # Get CSRF token from request state (set by middleware)
+        csrf_token = getattr(request.state, 'csrf_token', '')
 
         # Detect watch mode status
         try:
