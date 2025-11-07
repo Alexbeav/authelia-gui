@@ -294,38 +294,3 @@ def extract_ip(request: Request) -> str:
     return 'unknown'
 
 
-def generate_csrf_token(settings: Settings) -> str:
-    """
-    Generate a new CSRF token.
-
-    Args:
-        settings: Application settings
-
-    Returns:
-        Signed CSRF token
-    """
-    serializer = URLSafeTimedSerializer(settings.csrf_secret, salt='csrf')
-    token_value = secrets.token_hex(32)
-    return serializer.dumps(token_value)
-
-
-def get_csrf_token_from_cookie(request: Request, settings: Settings) -> Optional[str]:
-    """
-    Extract and verify CSRF token from cookie.
-
-    Args:
-        request: Starlette request object
-        settings: Application settings
-
-    Returns:
-        Token value if valid, None otherwise
-    """
-    cookie_token = request.cookies.get('csrf_token', '')
-    if not cookie_token:
-        return None
-
-    try:
-        serializer = URLSafeTimedSerializer(settings.csrf_secret, salt='csrf')
-        return serializer.loads(cookie_token, max_age=3600)
-    except BadSignature:
-        return None

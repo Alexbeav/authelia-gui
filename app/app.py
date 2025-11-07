@@ -15,7 +15,7 @@ from passlib.hash import bcrypt
 from pydantic import ValidationError
 
 from config import get_settings
-from security import SecurityMiddleware, generate_csrf_token
+from security import SecurityMiddleware
 from users_io import UsersFileHandler, validate_no_duplicate_emails
 from restart import apply_changes, restart_authelia
 from audit import AuditLogger

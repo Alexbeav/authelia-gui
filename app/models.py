@@ -5,6 +5,10 @@ Implements strict validation:
 - Username: lowercase alphanumeric with dots, hyphens, underscores
 - Email: valid format, normalized to lowercase
 - Groups: deduplicated, lowercase
+
+Note: Using Pydantic v2 with v1 compatibility mode (@validator, Config class).
+This is supported and maintained by Pydantic team. Future versions may migrate
+to v2-native patterns (field_validator, model_config) if needed.
 """
 import re
 from typing import List, Dict

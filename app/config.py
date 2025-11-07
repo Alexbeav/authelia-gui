@@ -3,6 +3,8 @@ Configuration management for Authelia GUI.
 
 Reads environment variables at startup with sensible defaults.
 All settings are immutable after initialization.
+
+Note: Using Pydantic v2 with v1 compatibility mode (@validator, Config class).
 """
 import os
 import secrets

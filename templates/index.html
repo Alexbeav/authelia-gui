@@ -188,7 +188,16 @@
         </div>
         <div class="modal-body">
             <p>Are you sure you want to delete user <strong id="delete-username"></strong>?</p>
-            <p class="warning">This action cannot be undone. Authelia will restart briefly.</p>
+            <p class="warning">
+                This action cannot be undone.
+                {% if force_restart %}
+                Restart forced by configuration.
+                {% elif watch_mode_enabled %}
+                Changes will be applied automatically (no restart required).
+                {% else %}
+                Authelia will restart briefly.
+                {% endif %}
+            </p>
         </div>
         <div class="form-actions">
             <button type="button" class="btn btn-secondary" id="delete-cancel-btn">Cancel</button>
@@ -273,7 +282,7 @@ document.getElementById('create-user-form').addEventListener('submit', async (e)
     const formData = new FormData(e.target);
 
     try {
-        showToast('Creating user and restarting Authelia...', 'info');
+        showToast('Creating user and applying changes...', 'info');
 
         const response = await fetch('/users', {
             method: 'POST',
@@ -326,7 +335,7 @@ document.getElementById('delete-confirm-btn').addEventListener('click', async ()
     if (!userToDelete) return;
 
     try {
-        showToast('Deleting user and restarting Authelia...', 'info');
+        showToast('Deleting user and applying changes...', 'info');
         deleteModal.classList.remove('show');
 
         const response = await fetch(`/users/${userToDelete}`, {
